@@ -1,4 +1,7 @@
-{-# LANGUAGE OverloadedStrings, MagicHash, BangPatterns, RecordWildCards, DeriveDataTypeable #-}
+{-# LANGUAGE OverloadedStrings, MagicHash, BangPatterns, RecordWildCards, DeriveDataTypeable, CPP #-}
+#ifdef ghcjs_HOST_OS
+{-# LANGUAGE UnboxedTuples, ForeignFunctionInterface, UnliftedFFITypes #-}
+#endif
 
 {-|
 A library for efficiently building up a buffer of data.  When given data
@@ -71,6 +74,9 @@ import Data.Typeable (Typeable)
 import Data.Text () -- Show
 import Data.Text.Internal (Text (..))
 import Data.Text.Array (Array (..))
+#ifdef ghcjs_HOST_OS
+import Data.JSString
+#endif
 
 data Handle'
 type Handle = Ptr Handle'
@@ -349,8 +355,17 @@ appendEscapedJsonLiteral addr =
 {-# INLINE appendEscapedJsonLiteral #-}
 
 appendEscapedJsonText :: Text -> BufferBuilder ()
+#ifndef ghcjs_HOST_OS
 appendEscapedJsonText !(Text arr ofs len) =
-    let byteArray = aBA arr
+    let
+#else
+appendEscapedJsonText !(Text t) =
+    let (# ba#, len# #) = js_fromString t
+        len = I# len#
+        arr = Array ba#
+        ofs = 0
+#endif
+        byteArray = aBA arr
     in withHandle $ \h ->
         bw_append_json_escaped_utf16 h len (Ptr (byteArrayContents# byteArray) `plusPtr` (2 * ofs))
 {-# INLINE appendEscapedJsonText #-}
@@ -364,3 +379,9 @@ appendUrlEncoded !(BS.PS (ForeignPtr addr _) offset len) =
     withHandle $ \h ->
         bw_append_url_encoded h len (plusPtr (Ptr addr) offset)
 {-# INLINE appendUrlEncoded #-}
+
+#ifdef ghcjs_HOST_OS
+foreign import javascript unsafe
+  "h$textFromString"
+  js_fromString :: JSString -> (# ByteArray#, Int# #)
+#endif
